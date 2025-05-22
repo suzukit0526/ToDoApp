@@ -14,15 +14,27 @@ export async function GET(request: Request) {
     console.log('Request URL:', request.url);
     console.log('Code:', code);
     console.log('Next:', next);
-    console.log('Hash:', requestUrl.hash);
 
     if (!code) {
       console.error('No code provided in callback');
       return NextResponse.redirect(new URL('/login', request.url));
     }
 
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    // Create a new response object
+    const response = NextResponse.redirect(new URL(next, requestUrl.origin));
+    
+    // Create Supabase client with the response object
+    const supabase = createRouteHandlerClient({ 
+      cookies: () => cookies() 
+    }, {
+      cookieOptions: {
+        name: 'sb-auth-token',
+        path: '/',
+        domain: requestUrl.hostname,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      }
+    });
     
     console.log('Attempting to exchange code for session...');
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
@@ -33,24 +45,18 @@ export async function GET(request: Request) {
     }
 
     console.log('Successfully exchanged code for session');
-    console.log('Session data:', data);
     
-    // セッションが正しく設定されたか確認
+    // Verify the session was created
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     
-    if (sessionError) {
+    if (sessionError || !session) {
       console.error('Error getting session:', sessionError);
       return NextResponse.redirect(new URL('/login', request.url));
     }
 
-    console.log('Session after exchange:', session ? 'exists' : 'none');
-    if (session) {
-      console.log('User email:', session.user.email);
-    }
+    console.log('Session verified successfully');
+    console.log('User email:', session.user.email);
 
-    // 認証成功後、ホームページにリダイレクト
-    const response = NextResponse.redirect(new URL(next, requestUrl.origin));
-    console.log('Redirecting to:', response.headers.get('location'));
     return response;
   } catch (error) {
     console.error('Auth callback error:', error);
